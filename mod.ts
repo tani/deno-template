@@ -1,11 +1,12 @@
 import Sval from "https://cdn.skypack.dev/sval@0.4.8";
+import { escapeHtml  } from "https://deno.land/x/escape@1.4.2/mod.ts";
 
-type State = "open" | "close" | "value";
+type State = "open" | "close" | "unescaped" | "escaped";
 
 export type Template = (globalThis: any) => string
 
 export const compile = (str: string): Template => {
-  const tokens = str.split(/(<%-?|%>)/);
+  const tokens = str.split(/(<%[-=]?|%>)/);
   const lines: string[] = ["let __result=''"];
   let state: State = "close";
   for (const token of tokens) {
@@ -14,7 +15,10 @@ export const compile = (str: string): Template => {
         state = "open";
         continue;
       case "<%-":
-        state = "value";
+        state = "unescaped";
+        continue;
+      case "<%=":
+        state = "escaped";
         continue;
       case "%>":
         state = "close";
@@ -24,8 +28,11 @@ export const compile = (str: string): Template => {
       case "open":
       lines.push(token);
       break;
-      case "value":
+      case "unescaped":
       lines.push(`__result+=(${token})`);
+      break;
+      case "escaped":
+      lines.push(`__result+=__escape(${token})`);
       break;
       case "close":
       lines.push(`__result+=atob("${btoa(token)}")`);
@@ -37,6 +44,7 @@ export const compile = (str: string): Template => {
   return (globalThis: any) => {
     try {
       const interpreter = new Sval()
+      interpreter.import('__escape', escapeHtml)
       interpreter.import(globalThis)
       interpreter.run(code)
       return interpreter.exports.result
