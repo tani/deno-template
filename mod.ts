@@ -19,8 +19,8 @@ type State = "open" | "close" | "unescaped" | "escaped";
 
 export type Template = (globalThis: any) => string
 
-export const compile = (str: string): Template => {
-  const tokens = str.split(/(<%[-=]?|%>)/);
+export const compile = (src: string): Template => {
+  const tokens = src.split(/(<%[-=]?|%>)/);
   const lines: string[] = ["let __result=''"];
   let state: State = "close";
   for (const token of tokens) { switch (token) {
@@ -54,18 +54,19 @@ export const compile = (str: string): Template => {
   }
   const code = lines.join("\n")
   return (globalThis: any) => {
-    try {
-      realm.scope(()=>{
-        for(const [key, value] of Object.entries(globalThis)) {
-          Engine.CreateDataProperty(realm.GlobalObject, new Engine.Value(key), new Engine.Value(value))
-        }
-      })
-      return realm.evaluateScript(code).Value.string
-    } catch (err) {
-      console.log('\n', code)
-      throw err
+    realm.scope(()=>{
+      for(const [key, value] of globalThis) {
+        Engine.CreateDataProperty(
+          realm.GlobalObject,
+          new Engine.Value(key),
+          new Engine.Value(value)
+        )
+      }
+    })
+    const result = realm.evaluateScript(code)
+    if ('Value' in result && 'string' in result.Value) {
+      return result.Value.string
     }
+    throw Error('Template expansion failed\n' + src)
   }
 }
-
-console.log(compile("Hello, <%= name %>")({ name: 'Masaya' }))
