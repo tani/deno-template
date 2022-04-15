@@ -1,5 +1,19 @@
-import Sval from "https://cdn.skypack.dev/sval@0.4.8";
+import * as Engine from "https://esm.sh/@engine262/engine262"
 import { escapeHtml  } from "https://deno.land/x/escape@1.4.2/mod.ts";
+
+const agent = new Engine.Agent();
+Engine.setSurroundingAgent(agent);
+const realm = new Engine.ManagedRealm();
+realm.scope(()=>{
+  const __escape = new Engine.Value(([value]: [any]) => {
+    return new Engine.Value(escapeHtml(value.string))
+  })
+  const __atob = new Engine.Value(([value]: [any]) => {
+    return new Engine.Value(atob(value.string))
+  })
+  Engine.CreateDataProperty(realm.GlobalObject, new Engine.Value('__escape'), __escape)
+  Engine.CreateDataProperty(realm.GlobalObject, new Engine.Value('__atob'), __atob)
+})
 
 type State = "open" | "close" | "unescaped" | "escaped";
 
@@ -9,8 +23,7 @@ export const compile = (str: string): Template => {
   const tokens = str.split(/(<%[-=]?|%>)/);
   const lines: string[] = ["let __result=''"];
   let state: State = "close";
-  for (const token of tokens) {
-    switch (token) {
+  for (const token of tokens) { switch (token) {
       case "<%":
         state = "open";
         continue;
@@ -29,28 +42,30 @@ export const compile = (str: string): Template => {
       lines.push(token);
       break;
       case "unescaped":
-      lines.push(`__result+=(${token})`);
+      lines.push(`__result+=eval(__atob("${btoa(token)}"))`);
       break;
       case "escaped":
-      lines.push(`__result+=__escape(${token})`);
+      lines.push(`__result+=__escape(eval(__atob("${btoa(token)}")))`);
       break;
       case "close":
-      lines.push(`__result+=atob("${btoa(token)}")`);
+      lines.push(`__result+=__atob("${btoa(token)}")`);
       break;
     }
   }
-  lines.push(`exports.result = __result`);
-  const code = lines.join(";\n")
+  const code = lines.join("\n")
   return (globalThis: any) => {
     try {
-      const interpreter = new Sval()
-      interpreter.import('__escape', escapeHtml)
-      interpreter.import(globalThis)
-      interpreter.run(code)
-      return interpreter.exports.result
+      realm.scope(()=>{
+        for(const [key, value] of Object.entries(globalThis)) {
+          Engine.CreateDataProperty(realm.GlobalObject, new Engine.Value(key), new Engine.Value(value))
+        }
+      })
+      return realm.evaluateScript(code).Value.string
     } catch (err) {
       console.log('\n', code)
       throw err
     }
   }
 }
+
+console.log(compile("Hello, <%= name %>")({ name: 'Masaya' }))
