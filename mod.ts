@@ -1,29 +1,23 @@
-import * as Engine from "https://esm.sh/@engine262/engine262"
-import { escapeHtml  } from "https://deno.land/x/escape@1.4.2/mod.ts";
+import {
+  Agent,
+  CreateDataProperty,
+  ManagedRealm,
+  setSurroundingAgent,
+  Value,
+} from "https://esm.sh/@engine262/engine262";
+import { escapeHtml } from "https://deno.land/x/escape@1.4.2/mod.ts";
 
-const agent = new Engine.Agent();
-Engine.setSurroundingAgent(agent);
-const realm = new Engine.ManagedRealm();
-realm.scope(()=>{
-  const __escape = new Engine.Value(([value]: [any]) => {
-    return new Engine.Value(escapeHtml(value.string))
-  })
-  const __atob = new Engine.Value(([value]: [any]) => {
-    return new Engine.Value(atob(value.string))
-  })
-  Engine.CreateDataProperty(realm.GlobalObject, new Engine.Value('__escape'), __escape)
-  Engine.CreateDataProperty(realm.GlobalObject, new Engine.Value('__atob'), __atob)
-})
-
+type Value = ReturnType<typeof Value>;
 type State = "open" | "close" | "unescaped" | "escaped";
 
-export type Template = (globalThis: any) => string
+export type Template = (globalThis: Record<string, unknown>) => string;
 
 export const compile = (src: string): Template => {
   const tokens = src.split(/(<%[-=]?|%>)/);
   const lines: string[] = ["let __result=''"];
   let state: State = "close";
-  for (const token of tokens) { switch (token) {
+  for (const token of tokens) {
+    switch (token) {
       case "<%":
         state = "open";
         continue;
@@ -39,34 +33,61 @@ export const compile = (src: string): Template => {
     }
     switch (state) {
       case "open":
-      lines.push(token);
-      break;
+        lines.push(token);
+        break;
       case "unescaped":
-      lines.push(`__result+=eval(__atob("${btoa(token)}"))`);
-      break;
+        lines.push(`__result+=eval(__atob("${btoa(token)}"))`);
+        break;
       case "escaped":
-      lines.push(`__result+=__escape(eval(__atob("${btoa(token)}")))`);
-      break;
+        lines.push(`__result+=__escape(eval(__atob("${btoa(token)}")))`);
+        break;
       case "close":
-      lines.push(`__result+=__atob("${btoa(token)}")`);
-      break;
+        lines.push(`__result+=__atob("${btoa(token)}")`);
+        break;
     }
   }
-  const code = lines.join("\n")
-  return (globalThis: any) => {
-    realm.scope(()=>{
-      for(const [key, value] of globalThis) {
-        Engine.CreateDataProperty(
-          realm.GlobalObject,
-          new Engine.Value(key),
-          new Engine.Value(value)
-        )
+  const code = lines.join("\n");
+  return (globalThis: Record<string, unknown>) => {
+    const agent = new Agent();
+    setSurroundingAgent(agent);
+    const realm = new ManagedRealm();
+    realm.scope(() => {
+      function unwrap(value: Value) {
+        const json = realm.Intrinsics["%JSON%"];
+        const stringify = json.properties.map.get("stringify").Value;
+        return JSON.parse(stringify.nativeFunction([value]).string);
       }
-    })
-    const result = realm.evaluateScript(code)
-    if ('Value' in result && 'string' in result.Value) {
-      return result.Value.string
+      function wrap(value: unknown) {
+        if (typeof value === "function") {
+          return new Value((args: Value[]) => {
+            return new Value(value(...args.map(unwrap)));
+          });
+        }
+        return new Value(value);
+      }
+      CreateDataProperty(
+        realm.GlobalObject,
+        wrap("__escape"),
+        wrap(escapeHtml),
+      );
+      CreateDataProperty(
+        realm.GlobalObject,
+        wrap("__atob"),
+        wrap(atob)
+      );
+      for (const [key, value] of Object.entries(globalThis)) {
+        CreateDataProperty(
+          realm.GlobalObject,
+          wrap(key),
+          wrap(value)
+        );
+      }
+    });
+    const result = realm.evaluateScript(code);
+    if ("Value" in result && "string" in result.Value) {
+      return result.Value.string;
     }
-    throw Error('Template expansion failed\n' + src)
-  }
-}
+    const message = result.Value.properties.map.get("message").Value.string;
+    throw Error(message);
+  };
+};
