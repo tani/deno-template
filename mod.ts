@@ -1,3 +1,6 @@
+// Copyright 2022- TANIGUCHI Masaya
+// MIT License https://git.io/mit-license
+
 import {
   Agent,
   CreateDataProperty,
