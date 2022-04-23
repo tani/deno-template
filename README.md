@@ -12,5 +12,5 @@ It might be slower than other templating library. Anyway, enjoy ejs template ;)
 import { compile } from "https://pax.deno.dev/tani/fuki"
 const name = "John"
 const template = compile("<% for (let i = 0; i < 10; i++) { %> Hi, <%- name %>! <% } %>")
-console.log(template({ name })
+console.log(await template({ name })
 ```
