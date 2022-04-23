@@ -1,23 +1,15 @@
 // Copyright 2022- TANIGUCHI Masaya
 // MIT License https://git.io/mit-license
 
-import {
-  Agent,
-  CreateDataProperty,
-  ManagedRealm,
-  setSurroundingAgent,
-  Value,
-} from "https://esm.sh/@engine262/engine262";
+import Sval from "https://esm.sh/sval@v0.4.8?bundle&no-check";
 import { escapeHtml } from "https://deno.land/x/escape@1.4.2/mod.ts";
 
-type Value = ReturnType<typeof Value>;
-type State = "open" | "close" | "unescaped" | "escaped";
-
-export type Template = (globalThis: Record<string, unknown>) => string;
+export type Template = (globalThis: Record<string, unknown>) => Promise<string>;
+type State = "open" | "close" | "escaped" | "unescaped";
 
 export const compile = (src: string): Template => {
   const tokens = src.split(/(<%[-=]?|%>)/);
-  const lines: string[] = ["let __result=''"];
+  const lines: string[] = ["(async () => {", "let __result=''"];
   let state: State = "close";
   for (const token of tokens) {
     switch (token) {
@@ -39,58 +31,31 @@ export const compile = (src: string): Template => {
         lines.push(token);
         break;
       case "unescaped":
-        lines.push(`__result+=eval(__atob("${btoa(token)}"))`);
+        lines.push(`__result+=${token}`);
         break;
       case "escaped":
-        lines.push(`__result+=__escape(eval(__atob("${btoa(token)}")))`);
+        lines.push(`__result+=__escape(${token})`);
         break;
       case "close":
-        lines.push(`__result+=__atob("${btoa(token)}")`);
+        lines.push(`__result+=atob("${btoa(token)}")`);
         break;
     }
   }
-  const code = lines.join("\n");
-  return (globalThis: Record<string, unknown>) => {
-    const agent = new Agent();
-    setSurroundingAgent(agent);
-    const realm = new ManagedRealm();
-    realm.scope(() => {
-      function unwrap(value: Value) {
-        const json = realm.Intrinsics["%JSON%"];
-        const stringify = json.properties.map.get("stringify").Value;
-        return JSON.parse(stringify.nativeFunction([value]).string);
-      }
-      function wrap(value: unknown) {
-        if (typeof value === "function") {
-          return new Value((args: Value[]) => {
-            return new Value(value(...args.map(unwrap)));
-          });
-        }
-        return new Value(value);
-      }
-      CreateDataProperty(
-        realm.GlobalObject,
-        wrap("__escape"),
-        wrap(escapeHtml),
-      );
-      CreateDataProperty(
-        realm.GlobalObject,
-        wrap("__atob"),
-        wrap(atob)
-      );
-      for (const [key, value] of Object.entries(globalThis)) {
-        CreateDataProperty(
-          realm.GlobalObject,
-          wrap(key),
-          wrap(value)
-        );
+  lines.push("__resolve(__result)", "})()");
+  const code = lines.join(";\n");
+  return (globalThis: Record<string, unknown>) =>
+    new Promise((resolve) => {
+      const js = new Sval();
+      js.import(globalThis);
+      js.import({
+        __resolve: resolve,
+        __escape: escapeHtml,
+      });
+      try {
+        js.run(code);
+      } catch (err) {
+        console.error(code);
+        throw err;
       }
     });
-    const result = realm.evaluateScript(code);
-    if ("Value" in result && "string" in result.Value) {
-      return result.Value.string;
-    }
-    const message = result.Value.properties.map.get("message").Value.string;
-    throw Error(message);
-  };
 };
