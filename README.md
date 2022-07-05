@@ -1,4 +1,4 @@
-# Fuki - ejs in sandbox
+# Deno Template - ejs in sandbox
 
 This is a tiny template library for Node/ Deno projects.
 Most of ejs flavored template engine depend on `eval` or `Function`.
@@ -9,7 +9,7 @@ It might be slower than other templating library. Anyway, enjoy ejs template ;)
 ## Usage 
 
 ```js
-import { compile } from "https://pax.deno.dev/tani/fuki"
+import { compile } from "https://pax.deno.dev/tani/deno-template"
 const name = "John"
 const template = compile("<% for (let i = 0; i < 10; i++) { %> Hi, <%- name %>! <% } %>")
 console.log(await template({ name })
