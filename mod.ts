@@ -1,10 +1,12 @@
 // Copyright 2022- TANIGUCHI Masaya
 // MIT License https://git.io/mit-license
-import { getQuickJS } from "npm:quickjs-emscripten@0.29.0";
+import variant from "npm:@jitl/quickjs-wasmfile-release-sync@0.29.0"
+import { newQuickJSWASMModuleFromVariant } from "npm:quickjs-emscripten-core@0.29.0"
 import { escapeHtml } from "https://deno.land/x/escape@1.4.2/mod.ts";
-
 export type Template = (globalThis?: Record<string, unknown>) => Promise<string>;
 type State = "open" | "close" | "escaped" | "unescaped";
+
+const QuickJS = await newQuickJSWASMModuleFromVariant(variant);
 
 export const compile = (src: string): Template => {
   const tokens = src.split(/(<%[-=]?|%>)/);
@@ -43,7 +45,6 @@ export const compile = (src: string): Template => {
   lines.push("__result");
   const code = lines.join(";\n");
   return async (globalThis: Record<string, unknown> = {}) => {
-    const QuickJS = await getQuickJS();
     using vm = QuickJS.newContext();
     using __escape = vm.newFunction("__escape", (str) => (vm.newString(escapeHtml(vm.dump(str)))));
     vm.setProp(vm.global, "__escape", __escape);
